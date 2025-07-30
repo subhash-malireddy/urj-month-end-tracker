@@ -7,8 +7,6 @@ import {
   storePreviousMonthAccumulated,
 } from "./utils/data.js";
 
-
-
 // In-memory storage for tracking devices during month transition
 const trackingDevices = new Map();
 
@@ -43,8 +41,8 @@ async function checkAndPollTapoDevices() {
         "TRACKING SETUP: Setting up time-based monitoring and finalization"
       );
 
-      // Track which minutes we've already processed to avoid duplicates
-      const processedMinutes = new Set();
+      // Track execution status for each minute (minute -> success/failure)
+      const minuteExecutionStatus = new Map();
 
       // Monitor loop - check every 5 seconds for the right minute
       while (true) {
@@ -55,18 +53,24 @@ async function checkAndPollTapoDevices() {
         if ([56, 57, 58, 59].includes(currentMinute)) {
           const minuteKey = `${now.getHours()}-${currentMinute}`;
 
-          // Only process each minute once
-          if (!processedMinutes.has(minuteKey)) {
-            processedMinutes.add(minuteKey);
-
+          // Only process each minute once, and only if it hasn't succeeded yet
+          if (
+            !minuteExecutionStatus.has(minuteKey) ||
+            minuteExecutionStatus.get(minuteKey) === false
+          ) {
             if (currentMinute === 59) {
               logger.info(
                 { minute: currentMinute, time: now.toLocaleTimeString() },
                 "FINALIZATION: Running final processing task"
               );
-              await finalizeMonthEndTracking();
+              const success = await finalizeMonthEndTracking();
+              minuteExecutionStatus.set(minuteKey, success);
+
+              // Log final execution overview
+              const overview = Object.fromEntries(minuteExecutionStatus);
               logger.info(
-                "FINALIZATION: Month-end tracking sequence completed. Exiting monitoring loop"
+                { executionOverview: overview },
+                "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
               );
               break; // Exit the loop after finalization
             } else {
@@ -74,16 +78,15 @@ async function checkAndPollTapoDevices() {
                 { minute: currentMinute, time: now.toLocaleTimeString() },
                 "MONITORING: Running monitoring task"
               );
-              await monitorAndSyncTracking();
+              const success = await monitorAndSyncTracking();
+              minuteExecutionStatus.set(minuteKey, success);
             }
           }
         }
 
         // Break if we've passed 59 minutes (in case we missed it)
         if (currentMinute === 0) {
-          logger.warn(
-            "MONITORING: Entered new hour. Exiting monitoring loop"
-          );
+          logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
           break;
         }
 
@@ -228,16 +231,23 @@ async function monitorAndSyncTracking() {
             { deviceId: device.device_id, error },
             "SYNC: Error adding new device to tracking"
           );
+          return false; // Return failure if adding a new device fails
         }
       }
     }
+
+    logger.info("SYNC: Monitoring and syncing completed successfully");
+    return true; // Return success
   } catch (error) {
     logger.error({ error }, "SYNC: Error monitoring tracking data");
+    return false; // Return failure
   }
 }
 
 // Final processing at 11:59 PM
 async function finalizeMonthEndTracking() {
+  let hasErrors = false;
+
   try {
     logger.info("FINAL: Finalizing month-end tracking");
 
@@ -254,6 +264,7 @@ async function finalizeMonthEndTracking() {
           { deviceId, error },
           "FINAL: Error getting final month energy, using previously stored value"
         );
+        hasErrors = true;
       }
 
       // Calculate the difference between final and original month_energy
@@ -279,15 +290,25 @@ async function finalizeMonthEndTracking() {
           { deviceId, error },
           "FINAL: Error storing accumulated value for device"
         );
+        hasErrors = true;
       }
     }
 
     // Clear memory
     trackingDevices.clear();
 
-    logger.info("FINAL: Month-end tracking finalized and cleaned up");
+    if (hasErrors) {
+      logger.warn("FINAL: Month-end tracking completed with some errors");
+      return false; // Return failure if any device had errors
+    } else {
+      logger.info(
+        "FINAL: Month-end tracking finalized and cleaned up successfully"
+      );
+      return true; // Return success
+    }
   } catch (error) {
     logger.error({ error }, "FINAL: Error finalizing month-end tracking");
+    return false; // Return failure
   }
 }
 

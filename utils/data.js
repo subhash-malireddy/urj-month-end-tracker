@@ -1,7 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { logger } from "./logger.js";
 
-
 const sql = neon(process.env.DATABASE_URL);
 
 export const getActiveDevicesAndTheirUsage = async () => {
@@ -19,7 +18,7 @@ export const updateTrackingFlag = async (
   errorContext
 ) => {
   try {
-    await SqlTemplate`UPDATE usage SET is_tracking_previous_month = ${isTracking} WHERE id = ${usageRecordId}`;
+    await sql`UPDATE usage SET is_tracking_previous_month = ${isTracking} WHERE id = ${usageRecordId}`;
     logger.info(
       { usageRecordId, isTracking },
       "DB: Updated tracking flag for usage record"
