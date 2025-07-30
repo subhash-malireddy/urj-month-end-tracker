@@ -1,0 +1,14 @@
+{
+	"type": "module",
+	"scripts": {
+		"start": "node urj-cron-previous-month-tracker.js",
+		"dev": "node --watch urj-cron-previous-month-tracker.js"
+	},
+	"dependencies": {
+		"@neondatabase/serverless": "^1.0.1",
+		"dotenv": "^17.2.0",
+		"node-cron": "^4.2.1",
+		"pino": "^8.17.2",
+		"pino-pretty": "^10.3.1"
+	}
+}
