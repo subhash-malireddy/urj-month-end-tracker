@@ -1,6 +1,10 @@
 import { neon } from "@neondatabase/serverless";
 import { logger } from "./logger.js";
 
+if (!process.env.DATABASE_URL) {
+  logger.fatal("ENV: DATABASE_URL is missing. Exiting.");
+  process.exit(1);
+}
 const sql = neon(process.env.DATABASE_URL);
 
 export const getActiveDevicesAndTheirUsage = async () => {
