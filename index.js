@@ -13,6 +13,14 @@ const trackingDevices = new Map();
 // --- Configuration ---
 const TIMEZONE = "Australia/Sydney";
 
+// Global fault-handling hooks
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "PROCESS: Unhandled promise rejection");
+});
+process.on("uncaughtException", (error) => {
+  logger.error({ error }, "PROCESS: Uncaught exception");
+});
+
 // --- Cron Job Logic ---
 async function checkAndPollTapoDevices() {
   const now = new Date();
@@ -49,8 +57,8 @@ async function checkAndPollTapoDevices() {
         const now = new Date();
         const currentMinute = now.getMinutes();
 
-        // Check if we're in the monitoring window (56, 57, 58) or finalization minute (59)
-        if ([56, 57, 58, 59].includes(currentMinute)) {
+        // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
+        if ([55, 56, 57, 58, 59].includes(currentMinute)) {
           const minuteKey = `${now.getHours()}-${currentMinute}`;
 
           // Only process each minute once, and only if it hasn't succeeded yet
@@ -356,3 +364,7 @@ process.on("SIGTERM", () => {
   logger.info("SHUTDOWN: Cron job script terminated via SIGTERM");
   process.exit(0);
 });
+
+/**
+ * TODO:: Handle the case where the device might be turned on during the final minute
+ */
