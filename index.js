@@ -65,32 +65,36 @@ async function checkAndPollTapoDevices() {
 
         // Only process each minute once, and only if it hasn't succeeded yet
         if (
-          !minuteExecutionStatus.has(minuteKey) ||
-          minuteExecutionStatus.get(minuteKey) === false
+          minuteExecutionStatus.has(minuteKey) ||
+          minuteExecutionStatus.get(minuteKey) === true
         ) {
-          if (currentMinute === 59) {
-            logger.info(
-              { minute: currentMinute, time: now.toLocaleTimeString() },
-              "FINALIZATION: Running final processing task"
-            );
-            const success = await finalizeMonthEndTracking();
-            minuteExecutionStatus.set(minuteKey, success);
+          await delay();
+          continue;
+        }
 
-            // Log final execution overview
-            const overview = Object.fromEntries(minuteExecutionStatus);
-            logger.info(
-              { executionOverview: overview },
-              "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
-            );
-            break; // Exit the loop after finalization
-          } else {
-            logger.info(
-              { minute: currentMinute, time: now.toLocaleTimeString() },
-              "MONITORING: Running monitoring task"
-            );
-            const success = await monitorAndSyncTracking();
-            minuteExecutionStatus.set(minuteKey, success);
-          }
+        if (currentMinute === 59) {
+          logger.info(
+            { minute: currentMinute, time: now.toLocaleTimeString() },
+            "FINALIZATION: Running final processing task"
+          );
+          await monitorAndSyncTracking();
+          const success = await finalizeMonthEndTracking();
+          minuteExecutionStatus.set(minuteKey, success);
+
+          // Log final execution overview
+          const overview = Object.fromEntries(minuteExecutionStatus);
+          logger.info(
+            { executionOverview: overview },
+            "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
+          );
+          break; // Exit the loop after finalization
+        } else {
+          logger.info(
+            { minute: currentMinute, time: now.toLocaleTimeString() },
+            "MONITORING: Running monitoring task"
+          );
+          const success = await monitorAndSyncTracking();
+          minuteExecutionStatus.set(minuteKey, success);
         }
       }
 
@@ -101,11 +105,15 @@ async function checkAndPollTapoDevices() {
       }
 
       // Wait 1 second before checking again
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await delay();
     }
   } catch (error) {
     logger.error({ error }, "MONITORING: Error in monitoring sequence");
   }
+}
+
+function delay(ms = 1000) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // // Initialize tracking on the last day of the month
@@ -279,7 +287,6 @@ async function finalizeMonthEndTracking() {
 
   try {
     logger.info("FINAL: Finalizing month-end tracking");
-
     // Get final month energy values for all tracked devices
     for (const [deviceId, trackedData] of trackingDevices) {
       let finalMonthEnergy = trackedData.month_energy;
