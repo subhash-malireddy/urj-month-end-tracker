@@ -7,6 +7,15 @@ if (!process.env.DATABASE_URL) {
 }
 const sql = neon(process.env.DATABASE_URL);
 
+/**
+ * @returns {Promise<{
+ *   device_id: string;
+ *   usage_record_id: string;
+ *   ip_address: string;
+ *   alias: string;
+ *   consumption: number;
+ * }[]>}
+ */
 export const getActiveDevicesAndTheirUsage = async () => {
   const result =
     await sql`SELECT active_device.device_id, usage_record_id, device.ip_address, device.alias, consumption FROM active_device 
