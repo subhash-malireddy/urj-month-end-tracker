@@ -190,6 +190,17 @@ async function monitorAndSyncTracking() {
   }
 }
 
+/**
+ * @param {Array<{
+ *   device_id: string;
+ *   alias: string;
+ *   usage_record_id: string;
+ *   ip_address: string;
+ *   consumption: number;
+ * }>} currentActiveDevices
+ * @description Sync the in-memory active devices() with the database devices
+ * @returns {Promise<void>}
+ */
 async function syncActiveDevices(currentActiveDevices) {
   for (const device of currentActiveDevices) {
     if (!trackingDevices.has(device.device_id)) {
