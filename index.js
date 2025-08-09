@@ -1,4 +1,3 @@
-// Import the node-cron library
 import cron from "node-cron";
 import { logger, logSeparator } from "./utils/logger.js";
 import {
@@ -8,6 +7,16 @@ import {
 } from "./utils/data.js";
 
 // In-memory storage for tracking devices during month transition
+/**
+ * @type {Map<string, {
+ *   device_id: string;
+ *   alias: string;
+ *   usage_record_id: string;
+ *   ip_address: string;
+ *   consumption: number;
+ *   month_energy: number;
+ * }>}
+ */
 const trackingDevices = new Map();
 
 // --- Configuration ---
@@ -34,80 +43,68 @@ async function checkAndPollTapoDevices() {
   logSeparator();
   logger.info("MONTH-END CHECKER: Cron job triggered");
 
-  if (now.getDate() === lastDayOfMonth) {
+  if (now.getDate() !== lastDayOfMonth) return;
+
+  logger.info(`MONTH-END DETECTED: Last day of month (${now.toDateString()})`);
+  try {
     logger.info(
-      `MONTH-END DETECTED: Last day of month (${now.toDateString()})`
+      "TRACKING SETUP: Setting up time-based monitoring and finalization"
     );
-    try {
-      // // Initialize tracking immediately
-      // await initializeMonthEndTracking();
 
-      // // Only set up monitoring and finalization if we successfully initialized tracking
-      // if (trackingDevices.size <= 0) return;
+    // Track execution status for each minute (minute -> success/failure)
+    const minuteExecutionStatus = new Map();
 
-      logger.info(
-        "TRACKING SETUP: Setting up time-based monitoring and finalization"
-      );
+    // Monitor loop - check every 5 seconds for the right minute
+    while (true) {
+      const now = new Date();
+      const currentMinute = now.getMinutes();
 
-      // Track execution status for each minute (minute -> success/failure)
-      const minuteExecutionStatus = new Map();
+      // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
+      if ([55, 56, 57, 58, 59].includes(currentMinute)) {
+        const minuteKey = `${now.getHours()}-${currentMinute}`;
 
-      // Monitor loop - check every 5 seconds for the right minute
-      while (true) {
-        const now = new Date();
-        const currentMinute = now.getMinutes();
+        // Only process each minute once, and only if it hasn't succeeded yet
+        if (
+          !minuteExecutionStatus.has(minuteKey) ||
+          minuteExecutionStatus.get(minuteKey) === false
+        ) {
+          if (currentMinute === 59) {
+            logger.info(
+              { minute: currentMinute, time: now.toLocaleTimeString() },
+              "FINALIZATION: Running final processing task"
+            );
+            const success = await finalizeMonthEndTracking();
+            minuteExecutionStatus.set(minuteKey, success);
 
-        // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
-        if ([55, 56, 57, 58, 59].includes(currentMinute)) {
-          const minuteKey = `${now.getHours()}-${currentMinute}`;
-
-          // Only process each minute once, and only if it hasn't succeeded yet
-          if (
-            !minuteExecutionStatus.has(minuteKey) ||
-            minuteExecutionStatus.get(minuteKey) === false
-          ) {
-            if (currentMinute === 59) {
-              logger.info(
-                { minute: currentMinute, time: now.toLocaleTimeString() },
-                "FINALIZATION: Running final processing task"
-              );
-              const success = await finalizeMonthEndTracking();
-              minuteExecutionStatus.set(minuteKey, success);
-
-              // Log final execution overview
-              const overview = Object.fromEntries(minuteExecutionStatus);
-              logger.info(
-                { executionOverview: overview },
-                "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
-              );
-              break; // Exit the loop after finalization
-            } else {
-              logger.info(
-                { minute: currentMinute, time: now.toLocaleTimeString() },
-                "MONITORING: Running monitoring task"
-              );
-              const success = await monitorAndSyncTracking();
-              minuteExecutionStatus.set(minuteKey, success);
-            }
+            // Log final execution overview
+            const overview = Object.fromEntries(minuteExecutionStatus);
+            logger.info(
+              { executionOverview: overview },
+              "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
+            );
+            break; // Exit the loop after finalization
+          } else {
+            logger.info(
+              { minute: currentMinute, time: now.toLocaleTimeString() },
+              "MONITORING: Running monitoring task"
+            );
+            const success = await monitorAndSyncTracking();
+            minuteExecutionStatus.set(minuteKey, success);
           }
         }
-
-        // Break if we've passed 59 minutes (in case we missed it)
-        if (currentMinute === 0) {
-          logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
-          break;
-        }
-
-        // Wait 1 second before checking again
-        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-    } catch (error) {
-      logger.error({ error }, "MONITORING: Error in monitoring sequence");
+
+      // Break if we've passed 59 minutes (in case we missed it)
+      if (currentMinute === 0) {
+        logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
+        break;
+      }
+
+      // Wait 1 second before checking again
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-  } else {
-    logger.info(
-      "MONTH-END CHECKER: Not the last day of the month. Skipping detailed check"
-    );
+  } catch (error) {
+    logger.error({ error }, "MONITORING: Error in monitoring sequence");
   }
 }
 
