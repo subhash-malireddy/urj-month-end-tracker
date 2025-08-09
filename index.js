@@ -180,52 +180,54 @@ async function monitorAndSyncTracking() {
     await syncInactiveDevices(currentActiveDeviceIds);
 
     // Check for newly active devices that aren't being tracked yet
-    for (const device of currentActiveDevices) {
-      if (!trackingDevices.has(device.device_id)) {
-        try {
-          logger.info(
-            { deviceId: device.device_id, alias: device.alias },
-            "SYNC: New active device detected, adding to tracking"
-          );
-
-          const { month_energy } = await getCurrentMonthEnergy(
-            device.ip_address
-          );
-
-          await updateTrackingFlag(
-            device.usage_record_id,
-            true,
-            `SYNC: Tracking failed for newly detected device - ${device.alias}`
-          );
-
-          trackingDevices.set(device.device_id, {
-            device_id: device.device_id,
-            alias: device.alias,
-            usage_record_id: device.usage_record_id,
-            ip_address: device.ip_address,
-            consumption: device.consumption,
-            month_energy: month_energy,
-          });
-
-          logger.info(
-            { deviceId: device.device_id, alias: device.alias },
-            "SYNC: Successfully added new device to tracking"
-          );
-        } catch (error) {
-          logger.error(
-            { deviceId: device.device_id, error },
-            "SYNC: Error adding new device to tracking"
-          );
-          return false; // Return failure if adding a new device fails
-        }
-      }
-    }
+    await syncActiveDevices(currentActiveDevices);
 
     logger.info("SYNC: Monitoring and syncing completed successfully");
     return true; // Return success
   } catch (error) {
     logger.error({ error }, "SYNC: Error monitoring tracking data");
     return false; // Return failure
+  }
+}
+
+async function syncActiveDevices(currentActiveDevices) {
+  for (const device of currentActiveDevices) {
+    if (!trackingDevices.has(device.device_id)) {
+      try {
+        logger.info(
+          { deviceId: device.device_id, alias: device.alias },
+          "SYNC: New active device detected, adding to tracking"
+        );
+
+        const { month_energy } = await getCurrentMonthEnergy(device.ip_address);
+
+        await updateTrackingFlag(
+          device.usage_record_id,
+          true,
+          `SYNC: Tracking failed for newly detected device - ${device.alias}`
+        );
+
+        trackingDevices.set(device.device_id, {
+          device_id: device.device_id,
+          alias: device.alias,
+          usage_record_id: device.usage_record_id,
+          ip_address: device.ip_address,
+          consumption: device.consumption,
+          month_energy: month_energy,
+        });
+
+        logger.info(
+          { deviceId: device.device_id, alias: device.alias },
+          "SYNC: Successfully added new device to tracking"
+        );
+      } catch (error) {
+        logger.error(
+          { deviceId: device.device_id, error },
+          "SYNC: Error adding new device to tracking"
+        );
+        throw error;
+      }
+    }
   }
 }
 
