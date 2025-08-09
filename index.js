@@ -177,30 +177,7 @@ async function monitorAndSyncTracking() {
     );
 
     // Check for devices that are no longer active
-    for (const [deviceId, trackedData] of trackingDevices) {
-      if (!currentActiveDeviceIds.has(deviceId)) {
-        logger.info(
-          { deviceId },
-          `SYNC: Device - ${trackedData.alias} is no longer active, removing from tracking`
-        );
-
-        await updateTrackingFlag(
-          trackedData.usage_record_id,
-          false,
-          `MONITORING: Failed to stop tracking device - ${trackedData.alias}`
-        );
-
-        trackingDevices.delete(deviceId);
-      } else {
-        const { month_energy } = await getCurrentMonthEnergy(
-          trackedData.ip_address
-        );
-        trackingDevices.set(deviceId, {
-          ...trackedData,
-          month_energy: month_energy,
-        });
-      }
-    }
+    await syncInactiveDevices(currentActiveDeviceIds);
 
     // Check for newly active devices that aren't being tracked yet
     for (const device of currentActiveDevices) {
@@ -211,7 +188,16 @@ async function monitorAndSyncTracking() {
             "SYNC: New active device detected, adding to tracking"
           );
 
-          const { month_energy } = await getCurrentMonthEnergy(device);
+          const { month_energy } = await getCurrentMonthEnergy(
+            device.ip_address
+          );
+
+          await updateTrackingFlag(
+            device.usage_record_id,
+            true,
+            `SYNC: Tracking failed for newly detected device - ${device.alias}`
+          );
+
           trackingDevices.set(device.device_id, {
             device_id: device.device_id,
             alias: device.alias,
@@ -220,12 +206,6 @@ async function monitorAndSyncTracking() {
             consumption: device.consumption,
             month_energy: month_energy,
           });
-
-          await updateTrackingFlag(
-            device.usage_record_id,
-            true,
-            `SYNC: Tracking failed for newly detected device - ${device.alias}`
-          );
 
           logger.info(
             { deviceId: device.device_id, alias: device.alias },
@@ -246,6 +226,37 @@ async function monitorAndSyncTracking() {
   } catch (error) {
     logger.error({ error }, "SYNC: Error monitoring tracking data");
     return false; // Return failure
+  }
+}
+
+/**
+ * @param {Set<string>} currentActiveDeviceIds
+ * @description Sync the in-memory active devices() with the database devices
+ */
+async function syncInactiveDevices(currentActiveDeviceIds) {
+  for (const [deviceId, trackedData] of trackingDevices) {
+    if (!currentActiveDeviceIds.has(deviceId)) {
+      logger.info(
+        { deviceId },
+        `SYNC: Device - ${trackedData.alias} is no longer active, removing from tracking`
+      );
+
+      await updateTrackingFlag(
+        trackedData.usage_record_id,
+        false,
+        `MONITORING: Failed to stop tracking device - ${trackedData.alias}`
+      );
+
+      trackingDevices.delete(deviceId);
+    } else {
+      const { month_energy } = await getCurrentMonthEnergy(
+        trackedData.ip_address
+      );
+      trackingDevices.set(deviceId, {
+        ...trackedData,
+        month_energy: month_energy,
+      });
+    }
   }
 }
 
