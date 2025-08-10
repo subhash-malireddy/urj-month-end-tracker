@@ -116,65 +116,6 @@ function delay(ms = 1000) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// // Initialize tracking on the last day of the month
-// async function initializeMonthEndTracking() {
-//   try {
-//     logger.info("INIT: Initializing month-end tracking");
-//     const activeDevices = await getActiveDevicesAndTheirUsage();
-
-//     if (!activeDevices || activeDevices.length === 0) {
-//       logger.warn("INIT: No active devices found");
-//       return;
-//     }
-
-//     // Clear any existing tracking data
-//     trackingDevices.clear();
-
-//     // Get current month energy for all active devices and store in memory
-//     for (const device of activeDevices) {
-//       try {
-//         const { month_energy } = await getCurrentMonthEnergy(device);
-//         trackingDevices.set(device.device_id, {
-//           device_id: device.device_id,
-//           alias: device.alias,
-//           usage_record_id: device.usage_record_id,
-//           ip_address: device.ip_address,
-//           consumption: device.consumption,
-//           month_energy: month_energy,
-//         });
-
-//         // Set tracking flag to true
-//         await updateTrackingFlag(
-//           device.usage_record_id,
-//           true,
-//           `INIT: Tracking failed for device - ${device.alias}`
-//         );
-
-//         logger.info(
-//           {
-//             deviceId: device.device_id,
-//             ipAddress: device.ip_address,
-//             alias: device.alias,
-//           },
-//           "INIT: Started tracking device"
-//         );
-//       } catch (error) {
-//         logger.error(
-//           { deviceId: device.device_id, error },
-//           "INIT: Error initializing tracking for device"
-//         );
-//       }
-//     }
-
-//     logger.info(
-//       { deviceCount: trackingDevices.size },
-//       "INIT: Initialized tracking for devices"
-//     );
-//   } catch (error) {
-//     logger.error({ error }, "INIT: Error initializing month-end tracking");
-//   }
-// }
-
 // Monitor active devices every minute and keep tracking consistent
 async function monitorAndSyncTracking() {
   try {
