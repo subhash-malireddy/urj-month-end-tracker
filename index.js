@@ -52,70 +52,73 @@ async function checkAndPollTapoDevices() {
   if (now.getDate() !== lastDayOfMonth) return;
 
   logger.info(`MONTH-END DETECTED: Last day of month (${now.toDateString()})`);
-  try {
-    logger.info(
-      "TRACKING SETUP: Setting up time-based monitoring and finalization"
-    );
 
-    // Track execution status for each minute (minute -> success/failure)
-    const minuteExecutionStatus = new Map();
+  await executeOperation(
+    "MONTH-END-MONITORING-SEQUENCE",
+    async () => {
+      // Track execution status for each minute (minute -> success/failure)
+      const minuteExecutionStatus = new Map();
 
-    // Monitor loop - check every 5 seconds for the right minute
-    while (true) {
-      const now = new Date();
-      const currentMinute = now.getMinutes();
+      // Monitor loop - check every 5 seconds for the right minute
+      while (true) {
+        const now = new Date();
+        const currentMinute = now.getMinutes();
 
-      // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
-      if ([55, 56, 57, 58, 59].includes(currentMinute)) {
-        const minuteKey = `${now.getHours()}-${currentMinute}`;
+        // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
+        if ([55, 56, 57, 58, 59].includes(currentMinute)) {
+          const minuteKey = `${now.getHours()}-${currentMinute}`;
 
-        // Only process each minute once, and only if it hasn't succeeded yet
-        if (
-          minuteExecutionStatus.has(minuteKey) ||
-          minuteExecutionStatus.get(minuteKey) === true
-        ) {
-          await delay();
-          continue;
+          // Only process each minute once, and only if it hasn't succeeded yet
+          if (
+            minuteExecutionStatus.has(minuteKey) ||
+            minuteExecutionStatus.get(minuteKey) === true
+          ) {
+            await delay();
+            continue;
+          }
+
+          if (currentMinute === 59) {
+            const success = await executeOperation(
+              "FINALIZATION-MINUTE",
+              async () => {
+                await monitorAndSyncTracking();
+                return await finalizeMonthEndTracking();
+              },
+              { minute: currentMinute, time: now.toLocaleTimeString() }
+            );
+            minuteExecutionStatus.set(minuteKey, success.success);
+
+            // Log final execution overview
+            const overview = Object.fromEntries(minuteExecutionStatus);
+            logger.info(
+              { executionOverview: overview },
+              "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
+            );
+            break; // Exit the loop after finalization
+          } else {
+            const success = await executeOperation(
+              "MONITORING-MINUTE",
+              async () => {
+                return await monitorAndSyncTracking();
+              },
+              { minute: currentMinute, time: now.toLocaleTimeString() }
+            );
+            minuteExecutionStatus.set(minuteKey, success.success);
+          }
         }
 
-        if (currentMinute === 59) {
-          logger.info(
-            { minute: currentMinute, time: now.toLocaleTimeString() },
-            "FINALIZATION: Running final processing task"
-          );
-          await monitorAndSyncTracking();
-          const success = await finalizeMonthEndTracking();
-          minuteExecutionStatus.set(minuteKey, success);
-
-          // Log final execution overview
-          const overview = Object.fromEntries(minuteExecutionStatus);
-          logger.info(
-            { executionOverview: overview },
-            "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
-          );
-          break; // Exit the loop after finalization
-        } else {
-          logger.info(
-            { minute: currentMinute, time: now.toLocaleTimeString() },
-            "MONITORING: Running monitoring task"
-          );
-          const success = await monitorAndSyncTracking();
-          minuteExecutionStatus.set(minuteKey, success);
+        // Break if we've passed 59 minutes (in case we missed it)
+        if (currentMinute === 0) {
+          logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
+          break;
         }
-      }
 
-      // Break if we've passed 59 minutes (in case we missed it)
-      if (currentMinute === 0) {
-        logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
-        break;
+        // Wait 1 second before checking again
+        await delay();
       }
-
-      // Wait 1 second before checking again
-      await delay();
-    }
-  } catch (error) {
-    logger.error({ error }, "MONITORING: Error in monitoring sequence");
-  }
+    },
+    { lastDayOfMonth: now.toDateString() }
+  );
 }
 
 function delay(ms = 1000) {
