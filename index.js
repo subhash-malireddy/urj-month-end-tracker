@@ -1,5 +1,11 @@
 import cron from "node-cron";
-import { logger, logSeparator } from "./utils/logger.js";
+import {
+  logger,
+  logSeparator,
+  executeOperation,
+  executeDeviceOperation,
+  executeBatchOperation,
+} from "./utils/logger.js";
 import {
   getActiveDevicesAndTheirUsage,
   updateTrackingFlag,
@@ -46,70 +52,73 @@ async function checkAndPollTapoDevices() {
   if (now.getDate() !== lastDayOfMonth) return;
 
   logger.info(`MONTH-END DETECTED: Last day of month (${now.toDateString()})`);
-  try {
-    logger.info(
-      "TRACKING SETUP: Setting up time-based monitoring and finalization"
-    );
 
-    // Track execution status for each minute (minute -> success/failure)
-    const minuteExecutionStatus = new Map();
+  await executeOperation(
+    "MONTH-END-MONITORING-SEQUENCE",
+    async () => {
+      // Track execution status for each minute (minute -> success/failure)
+      const minuteExecutionStatus = new Map();
 
-    // Monitor loop - check every 5 seconds for the right minute
-    while (true) {
-      const now = new Date();
-      const currentMinute = now.getMinutes();
+      // Monitor loop - check every 5 seconds for the right minute
+      while (true) {
+        const now = new Date();
+        const currentMinute = now.getMinutes();
 
-      // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
-      if ([55, 56, 57, 58, 59].includes(currentMinute)) {
-        const minuteKey = `${now.getHours()}-${currentMinute}`;
+        // Check if we're in the monitoring window (55, 56, 57, 58) or finalization minute (59)
+        if ([55, 56, 57, 58, 59].includes(currentMinute)) {
+          const minuteKey = `${now.getHours()}-${currentMinute}`;
 
-        // Only process each minute once, and only if it hasn't succeeded yet
-        if (
-          minuteExecutionStatus.has(minuteKey) ||
-          minuteExecutionStatus.get(minuteKey) === true
-        ) {
-          await delay();
-          continue;
+          // Only process each minute once, and only if it hasn't succeeded yet
+          if (
+            minuteExecutionStatus.has(minuteKey) ||
+            minuteExecutionStatus.get(minuteKey) === true
+          ) {
+            await delay();
+            continue;
+          }
+
+          if (currentMinute === 59) {
+            const success = await executeOperation(
+              "FINALIZATION-MINUTE",
+              async () => {
+                await monitorAndSyncTracking();
+                return await finalizeMonthEndTracking();
+              },
+              { minute: currentMinute, time: now.toLocaleTimeString() }
+            );
+            minuteExecutionStatus.set(minuteKey, success.success);
+
+            // Log final execution overview
+            const overview = Object.fromEntries(minuteExecutionStatus);
+            logger.info(
+              { executionOverview: overview },
+              "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
+            );
+            break; // Exit the loop after finalization
+          } else {
+            const success = await executeOperation(
+              "MONITORING-MINUTE",
+              async () => {
+                return await monitorAndSyncTracking();
+              },
+              { minute: currentMinute, time: now.toLocaleTimeString() }
+            );
+            minuteExecutionStatus.set(minuteKey, success.success);
+          }
         }
 
-        if (currentMinute === 59) {
-          logger.info(
-            { minute: currentMinute, time: now.toLocaleTimeString() },
-            "FINALIZATION: Running final processing task"
-          );
-          await monitorAndSyncTracking();
-          const success = await finalizeMonthEndTracking();
-          minuteExecutionStatus.set(minuteKey, success);
-
-          // Log final execution overview
-          const overview = Object.fromEntries(minuteExecutionStatus);
-          logger.info(
-            { executionOverview: overview },
-            "FINALIZATION: Month-end tracking sequence completed. Execution overview logged"
-          );
-          break; // Exit the loop after finalization
-        } else {
-          logger.info(
-            { minute: currentMinute, time: now.toLocaleTimeString() },
-            "MONITORING: Running monitoring task"
-          );
-          const success = await monitorAndSyncTracking();
-          minuteExecutionStatus.set(minuteKey, success);
+        // Break if we've passed 59 minutes (in case we missed it)
+        if (currentMinute === 0) {
+          logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
+          break;
         }
-      }
 
-      // Break if we've passed 59 minutes (in case we missed it)
-      if (currentMinute === 0) {
-        logger.warn("MONITORING: Entered new hour. Exiting monitoring loop");
-        break;
+        // Wait 1 second before checking again
+        await delay();
       }
-
-      // Wait 1 second before checking again
-      await delay();
-    }
-  } catch (error) {
-    logger.error({ error }, "MONITORING: Error in monitoring sequence");
-  }
+    },
+    { lastDayOfMonth: now.toDateString() }
+  );
 }
 
 function delay(ms = 1000) {
@@ -118,8 +127,7 @@ function delay(ms = 1000) {
 
 // Monitor active devices every minute and keep tracking consistent
 async function monitorAndSyncTracking() {
-  try {
-    logger.info("SYNC: Monitoring and syncing tracking data");
+  const result = await executeOperation("MONITOR-SYNC", async () => {
     const currentActiveDevices = await getActiveDevicesAndTheirUsage();
     const currentActiveDeviceIds = new Set(
       currentActiveDevices.map((d) => d.device_id)
@@ -131,12 +139,10 @@ async function monitorAndSyncTracking() {
     // Check for newly active devices that aren't being tracked yet
     await syncActiveDevices(currentActiveDevices);
 
-    logger.info("SYNC: Monitoring and syncing completed successfully");
-    return true; // Return success
-  } catch (error) {
-    logger.error({ error }, "SYNC: Error monitoring tracking data");
-    return false; // Return failure
-  }
+    return { deviceCount: currentActiveDevices.length };
+  });
+
+  return result.success;
 }
 
 /**
@@ -151,44 +157,45 @@ async function monitorAndSyncTracking() {
  * @returns {Promise<void>}
  */
 async function syncActiveDevices(currentActiveDevices) {
-  for (const device of currentActiveDevices) {
-    if (!trackingDevices.has(device.device_id)) {
-      try {
-        logger.info(
-          { deviceId: device.device_id, alias: device.alias },
-          "SYNC: New active device detected, adding to tracking"
-        );
+  // Filter to only new devices that aren't already being tracked
+  const newDevices = currentActiveDevices.filter(
+    (device) => !trackingDevices.has(device.device_id)
+  );
 
-        const { month_energy } = await getCurrentMonthEnergy(device.ip_address);
+  if (newDevices.length === 0) return;
 
-        await updateTrackingFlag(
-          device.usage_record_id,
-          true,
-          `SYNC: Tracking failed for newly detected device - ${device.alias}`
-        );
+  await executeBatchOperation(
+    "SYNC-NEW-DEVICES",
+    newDevices,
+    async (device) => {
+      return await executeDeviceOperation(
+        "ADD-TO-TRACKING",
+        device,
+        async () => {
+          const { month_energy } = await getCurrentMonthEnergy(
+            device.ip_address
+          );
 
-        trackingDevices.set(device.device_id, {
-          device_id: device.device_id,
-          alias: device.alias,
-          usage_record_id: device.usage_record_id,
-          ip_address: device.ip_address,
-          consumption: device.consumption,
-          month_energy: month_energy,
-        });
+          // First update database flag, then add to memory only if successful
+          await updateTrackingFlag(
+            device.usage_record_id,
+            true,
+            `SYNC: Tracking failed for newly detected device - ${device.alias}`
+          );
 
-        logger.info(
-          { deviceId: device.device_id, alias: device.alias },
-          "SYNC: Successfully added new device to tracking"
-        );
-      } catch (error) {
-        logger.error(
-          { deviceId: device.device_id, error },
-          "SYNC: Error adding new device to tracking"
-        );
-        throw error;
-      }
+          // Only add to in-memory tracking if database update succeeded
+          trackingDevices.set(device.device_id, {
+            device_id: device.device_id,
+            alias: device.alias,
+            usage_record_id: device.usage_record_id,
+            ip_address: device.ip_address,
+            consumption: device.consumption,
+            month_energy: month_energy,
+          });
+        }
+      );
     }
-  }
+  );
 }
 
 /**
@@ -196,103 +203,132 @@ async function syncActiveDevices(currentActiveDevices) {
  * @description Sync the in-memory active devices() with the database devices
  */
 async function syncInactiveDevices(currentActiveDeviceIds) {
-  for (const [deviceId, trackedData] of trackingDevices) {
-    if (!currentActiveDeviceIds.has(deviceId)) {
-      logger.info(
-        { deviceId },
-        `SYNC: Device - ${trackedData.alias} is no longer active, removing from tracking`
-      );
+  const trackedDevicesArray = Array.from(trackingDevices.entries()).map(
+    ([deviceId, trackedData]) => ({ deviceId, ...trackedData })
+  );
 
-      await updateTrackingFlag(
-        trackedData.usage_record_id,
-        false,
-        `MONITORING: Failed to stop tracking device - ${trackedData.alias}`
-      );
+  await executeBatchOperation(
+    "SYNC-TRACKED-DEVICES",
+    trackedDevicesArray,
+    async (trackedDevice) => {
+      const { deviceId } = trackedDevice;
 
-      trackingDevices.delete(deviceId);
-    } else {
-      const { month_energy } = await getCurrentMonthEnergy(
-        trackedData.ip_address
-      );
-      trackingDevices.set(deviceId, {
-        ...trackedData,
-        month_energy: month_energy,
-      });
+      if (!currentActiveDeviceIds.has(deviceId)) {
+        // Device is no longer active - remove from tracking
+        return await executeDeviceOperation(
+          "REMOVE-FROM-TRACKING",
+          trackedDevice,
+          async () => {
+            // First update database flag, then remove from memory only if successful
+            await updateTrackingFlag(
+              trackedDevice.usage_record_id,
+              false,
+              `MONITORING: Failed to stop tracking device - ${trackedDevice.alias}`
+            );
+
+            // Only remove from in-memory tracking if database update succeeded
+            trackingDevices.delete(deviceId);
+          }
+        );
+      } else {
+        // Device is still active - update month_energy
+        return await executeDeviceOperation(
+          "UPDATE-MONTH-ENERGY",
+          trackedDevice,
+          async () => {
+            const { month_energy } = await getCurrentMonthEnergy(
+              trackedDevice.ip_address
+            );
+            trackingDevices.set(deviceId, {
+              ...trackedDevice,
+              month_energy: month_energy,
+            });
+          }
+        );
+      }
     }
-  }
+  );
 }
 
 // Final processing at 11:59 PM
 async function finalizeMonthEndTracking() {
-  let hasErrors = false;
+  const trackedDevicesArray = Array.from(trackingDevices.entries()).map(
+    ([deviceId, trackedData]) => ({ deviceId, ...trackedData })
+  );
 
-  try {
-    logger.info("FINAL: Finalizing month-end tracking");
-    for (const [deviceId, trackedData] of trackingDevices) {
-      const finalMonthEnergy = trackedData.month_energy;
+  const batchResult = await executeBatchOperation(
+    "FINALIZE-MONTH-END",
+    trackedDevicesArray,
+    async (trackedDevice) => {
+      return await executeDeviceOperation(
+        "STORE-ACCUMULATED-VALUE",
+        trackedDevice,
+        async () => {
+          const finalMonthEnergy = trackedDevice.month_energy;
+          const accumulatedValue = finalMonthEnergy - trackedDevice.consumption;
 
-      // Calculate the difference between final and original month_energy
-      try {
-        const accumulatedValue = finalMonthEnergy - trackedData.consumption;
-        // Store the accumulated value
-        await storePreviousMonthAccumulated(
-          trackedData.usage_record_id,
-          accumulatedValue
-        );
-
-        logger.info(
-          {
-            deviceId,
-            originalConsumption: trackedData.consumption,
-            finalMonthEnergy,
-            accumulatedValue,
-          },
-          "FINAL: Device processing completed"
-        );
-      } catch (error) {
-        logger.error(
-          { deviceId, error },
-          "FINAL: Error storing accumulated value for device"
-        );
-        hasErrors = true;
-      }
-    }
-
-    // Clear memory
-    trackingDevices.clear();
-
-    if (hasErrors) {
-      logger.warn("FINAL: Month-end tracking completed with some errors");
-      return false; // Return failure if any device had errors
-    } else {
-      logger.info(
-        "FINAL: Month-end tracking finalized and cleaned up successfully"
+          await storePreviousMonthAccumulated(
+            trackedDevice.usage_record_id,
+            accumulatedValue
+          );
+        }
       );
-      return true; // Return success
     }
-  } catch (error) {
-    logger.error({ error }, "FINAL: Error finalizing month-end tracking");
-    return false; // Return failure
+  );
+
+  // Clear memory
+  trackingDevices.clear();
+
+  if (batchResult.hasErrors) {
+    logger.warn(
+      {
+        successCount: batchResult.successCount,
+        failureCount: batchResult.failureCount,
+      },
+      "FINAL: Month-end tracking completed with some errors"
+    );
+    return false;
+  } else {
+    logger.info(
+      { deviceCount: batchResult.successCount },
+      "FINAL: Month-end tracking finalized and cleaned up successfully"
+    );
+    return true;
   }
 }
 
 async function getCurrentMonthEnergy(device_ip_address) {
-  const credentials = Buffer.from(
-    `${process.env.URJ_FSFY_API_USER}:${process.env.URJ_FSFY_API_PWD}`
-  ).toString("base64");
-  const response = await fetch(
-    `${process.env.URJ_FSFY_API}/usage/${device_ip_address}`,
-    {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "x-forwarded-authybasic": `Basic ${credentials}`,
-      },
-    }
-  );
-  const data = await response.json();
+  let month_energy;
 
-  return { month_energy: data.usage.month_energy };
+  const result = await executeOperation(
+    "API-GET-MONTH-ENERGY",
+    async () => {
+      const credentials = Buffer.from(
+        `${process.env.URJ_FSFY_API_USER}:${process.env.URJ_FSFY_API_PWD}`
+      ).toString("base64");
+      const response = await fetch(
+        `${process.env.URJ_FSFY_API}/usage/${device_ip_address}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-authybasic": `Basic ${credentials}`,
+          },
+        }
+      );
+      const data = await response.json();
+      month_energy = data.usage.month_energy;
+    },
+    { deviceIpAddress: device_ip_address }
+  );
+
+  if (!result.success) {
+    throw new Error(
+      `Failed to get month energy for device ${device_ip_address}`
+    );
+  }
+
+  return { month_energy };
 }
 
 // --- Schedule the Single Cron Job ---
@@ -320,7 +356,3 @@ process.on("SIGTERM", () => {
   logger.info("SHUTDOWN: Cron job script terminated via SIGTERM");
   process.exit(0);
 });
-
-/**
- * TODO:: Handle the case where the device might be turned on during the final minute
- */
