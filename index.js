@@ -356,7 +356,3 @@ process.on("SIGTERM", () => {
   logger.info("SHUTDOWN: Cron job script terminated via SIGTERM");
   process.exit(0);
 });
-
-/**
- * TODO:: Handle the case where the device might be turned on during the final minute
- */
