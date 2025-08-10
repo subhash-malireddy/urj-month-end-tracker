@@ -48,15 +48,15 @@ export const executeOperation = async (
 ) => {
   try {
     logger.info({ ...context }, `${operationName}: Starting operation`);
-    const result = await operation();
+    await operation();
     logger.info(
       { ...context },
       `${operationName}: Operation completed successfully`
     );
-    return { success: true, result, error: null };
+    return { success: true };
   } catch (error) {
     logger.error({ ...context, error }, `${operationName}: Operation failed`);
-    return { success: false, result: null, error };
+    return { success: false };
   }
 };
 
@@ -90,13 +90,11 @@ export const executeBatchOperation = async (
     `${operationName}: Starting batch operation`
   );
 
-  const results = [];
   let successCount = 0;
   let failureCount = 0;
 
   for (const item of items) {
     const result = await itemProcessor(item);
-    results.push(result);
 
     if (result.success) {
       successCount++;
@@ -115,5 +113,5 @@ export const executeBatchOperation = async (
     `${operationName}: Batch operation completed`
   );
 
-  return { results, successCount, failureCount, hasErrors: failureCount > 0 };
+  return { successCount, failureCount, hasErrors: failureCount > 0 };
 };
