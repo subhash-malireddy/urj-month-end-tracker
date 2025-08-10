@@ -298,22 +298,37 @@ async function finalizeMonthEndTracking() {
 }
 
 async function getCurrentMonthEnergy(device_ip_address) {
-  const credentials = Buffer.from(
-    `${process.env.URJ_FSFY_API_USER}:${process.env.URJ_FSFY_API_PWD}`
-  ).toString("base64");
-  const response = await fetch(
-    `${process.env.URJ_FSFY_API}/usage/${device_ip_address}`,
-    {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "x-forwarded-authybasic": `Basic ${credentials}`,
-      },
-    }
-  );
-  const data = await response.json();
+  let month_energy;
 
-  return { month_energy: data.usage.month_energy };
+  const result = await executeOperation(
+    "API-GET-MONTH-ENERGY",
+    async () => {
+      const credentials = Buffer.from(
+        `${process.env.URJ_FSFY_API_USER}:${process.env.URJ_FSFY_API_PWD}`
+      ).toString("base64");
+      const response = await fetch(
+        `${process.env.URJ_FSFY_API}/usage/${device_ip_address}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-authybasic": `Basic ${credentials}`,
+          },
+        }
+      );
+      const data = await response.json();
+      month_energy = data.usage.month_energy;
+    },
+    { deviceIpAddress: device_ip_address }
+  );
+
+  if (!result.success) {
+    throw new Error(
+      `Failed to get month energy for device ${device_ip_address}`
+    );
+  }
+
+  return { month_energy };
 }
 
 // --- Schedule the Single Cron Job ---
