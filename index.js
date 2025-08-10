@@ -287,21 +287,8 @@ async function finalizeMonthEndTracking() {
 
   try {
     logger.info("FINAL: Finalizing month-end tracking");
-    // Get final month energy values for all tracked devices
     for (const [deviceId, trackedData] of trackingDevices) {
-      let finalMonthEnergy = trackedData.month_energy;
-      try {
-        const { month_energy } = await getCurrentMonthEnergy(
-          trackedData.ip_address
-        );
-        finalMonthEnergy = month_energy;
-      } catch (error) {
-        logger.error(
-          { deviceId, error },
-          "FINAL: Error getting final month energy, using previously stored value"
-        );
-        hasErrors = true;
-      }
+      const finalMonthEnergy = trackedData.month_energy;
 
       // Calculate the difference between final and original month_energy
       try {
