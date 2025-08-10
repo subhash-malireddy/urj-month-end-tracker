@@ -245,55 +245,48 @@ async function syncInactiveDevices(currentActiveDeviceIds) {
 
 // Final processing at 11:59 PM
 async function finalizeMonthEndTracking() {
-  let hasErrors = false;
+  const trackedDevicesArray = Array.from(trackingDevices.entries()).map(
+    ([deviceId, trackedData]) => ({ deviceId, ...trackedData })
+  );
 
-  try {
-    logger.info("FINAL: Finalizing month-end tracking");
-    for (const [deviceId, trackedData] of trackingDevices) {
-      const finalMonthEnergy = trackedData.month_energy;
+  const batchResult = await executeBatchOperation(
+    "FINALIZE-MONTH-END",
+    trackedDevicesArray,
+    async (trackedDevice) => {
+      return await executeDeviceOperation(
+        "STORE-ACCUMULATED-VALUE",
+        trackedDevice,
+        async () => {
+          const finalMonthEnergy = trackedDevice.month_energy;
+          const accumulatedValue = finalMonthEnergy - trackedDevice.consumption;
 
-      // Calculate the difference between final and original month_energy
-      try {
-        const accumulatedValue = finalMonthEnergy - trackedData.consumption;
-        // Store the accumulated value
-        await storePreviousMonthAccumulated(
-          trackedData.usage_record_id,
-          accumulatedValue
-        );
-
-        logger.info(
-          {
-            deviceId,
-            originalConsumption: trackedData.consumption,
-            finalMonthEnergy,
-            accumulatedValue,
-          },
-          "FINAL: Device processing completed"
-        );
-      } catch (error) {
-        logger.error(
-          { deviceId, error },
-          "FINAL: Error storing accumulated value for device"
-        );
-        hasErrors = true;
-      }
-    }
-
-    // Clear memory
-    trackingDevices.clear();
-
-    if (hasErrors) {
-      logger.warn("FINAL: Month-end tracking completed with some errors");
-      return false; // Return failure if any device had errors
-    } else {
-      logger.info(
-        "FINAL: Month-end tracking finalized and cleaned up successfully"
+          await storePreviousMonthAccumulated(
+            trackedDevice.usage_record_id,
+            accumulatedValue
+          );
+        }
       );
-      return true; // Return success
     }
-  } catch (error) {
-    logger.error({ error }, "FINAL: Error finalizing month-end tracking");
-    return false; // Return failure
+  );
+
+  // Clear memory
+  trackingDevices.clear();
+
+  if (batchResult.hasErrors) {
+    logger.warn(
+      {
+        successCount: batchResult.successCount,
+        failureCount: batchResult.failureCount,
+      },
+      "FINAL: Month-end tracking completed with some errors"
+    );
+    return false;
+  } else {
+    logger.info(
+      { deviceCount: batchResult.successCount },
+      "FINAL: Month-end tracking finalized and cleaned up successfully"
+    );
+    return true;
   }
 }
 
