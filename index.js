@@ -124,8 +124,7 @@ function delay(ms = 1000) {
 
 // Monitor active devices every minute and keep tracking consistent
 async function monitorAndSyncTracking() {
-  try {
-    logger.info("SYNC: Monitoring and syncing tracking data");
+  const result = await executeOperation("MONITOR-SYNC", async () => {
     const currentActiveDevices = await getActiveDevicesAndTheirUsage();
     const currentActiveDeviceIds = new Set(
       currentActiveDevices.map((d) => d.device_id)
@@ -137,12 +136,10 @@ async function monitorAndSyncTracking() {
     // Check for newly active devices that aren't being tracked yet
     await syncActiveDevices(currentActiveDevices);
 
-    logger.info("SYNC: Monitoring and syncing completed successfully");
-    return true; // Return success
-  } catch (error) {
-    logger.error({ error }, "SYNC: Error monitoring tracking data");
-    return false; // Return failure
-  }
+    return { deviceCount: currentActiveDevices.length };
+  });
+
+  return result.success;
 }
 
 /**
