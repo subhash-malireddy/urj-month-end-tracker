@@ -176,12 +176,14 @@ async function syncActiveDevices(currentActiveDevices) {
             device.ip_address
           );
 
+          // First update database flag, then add to memory only if successful
           await updateTrackingFlag(
             device.usage_record_id,
             true,
             `SYNC: Tracking failed for newly detected device - ${device.alias}`
           );
 
+          // Only add to in-memory tracking if database update succeeded
           trackingDevices.set(device.device_id, {
             device_id: device.device_id,
             alias: device.alias,
@@ -217,12 +219,14 @@ async function syncInactiveDevices(currentActiveDeviceIds) {
           "REMOVE-FROM-TRACKING",
           trackedDevice,
           async () => {
+            // First update database flag, then remove from memory only if successful
             await updateTrackingFlag(
               trackedDevice.usage_record_id,
               false,
               `MONITORING: Failed to stop tracking device - ${trackedDevice.alias}`
             );
 
+            // Only remove from in-memory tracking if database update succeeded
             trackingDevices.delete(deviceId);
           }
         );

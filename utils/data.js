@@ -41,6 +41,7 @@ export const updateTrackingFlag = async (
       { usageRecordId, isTracking, error, errorContext },
       "DB: Error updating tracking flag for usage record"
     );
+    throw error; // Re-throw to allow calling code to handle the failure
   }
 };
 
