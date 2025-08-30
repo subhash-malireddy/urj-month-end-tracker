@@ -1,8 +1,6 @@
 // Configure Pino logger with timezone formatting
 import pino from "pino";
-import dotenv from "dotenv";
 
-dotenv.config();
 const TIMEZONE = "Australia/Sydney";
 
 export const logger = pino({
