@@ -96,14 +96,14 @@ async function checkAndPollTapoDevices() {
             );
             break; // Exit the loop after finalization
           } else {
-            const success = await executeOperation(
+            const result = await executeOperation(
               "MONITORING-MINUTE",
               async () => {
                 return await monitorAndSyncTracking();
               },
               { minute: currentMinute, time: now.toLocaleTimeString() }
             );
-            minuteExecutionStatus.set(minuteKey, success.success);
+            minuteExecutionStatus.set(minuteKey, result.success);
           }
         }
 
