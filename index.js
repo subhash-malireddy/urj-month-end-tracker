@@ -1,3 +1,4 @@
+import "dotenv/config";
 import cron from "node-cron";
 import {
   logger,
@@ -332,7 +333,7 @@ async function getCurrentMonthEnergy(device_ip_address) {
 }
 
 // --- Schedule the Single Cron Job ---
-
+logger.info("CRON: Starting cron job");
 // Single cron job - runs every day at 11:55 PM and handles all month-end logic with setTimeout
 cron.schedule(
   "55 23 * * *",

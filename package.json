@@ -1,8 +1,8 @@
 {
 	"type": "module",
 	"scripts": {
-		"start": "node urj-cron-previous-month-tracker.js",
-		"dev": "node --watch urj-cron-previous-month-tracker.js"
+		"start": "node index.js",
+		"dev": "node --watch index.js"
 	},
 	"dependencies": {
 		"@neondatabase/serverless": "^1.0.1",
